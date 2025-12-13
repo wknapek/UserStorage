@@ -1,10 +1,10 @@
 Endpoints Implemented
 #	Method	Endpoint	Description
-1	GET	/users	List users
-2	GET	/users/:id	Get user by ID
-3	POST	/users	Create user → publish UserCreated
-4	PUT	/users/:id	Update user → publish UserUpdated
-5	DELETE	/users/:id	Delete user → publish UserDeleted
-6	GET	/users/:id/files	Get user files
-7	POST	/users/:id/files	Add file
-8	DELETE	/users/:id/files	Delete all files
+- GET	/users	List users
+-	GET	/users/:id	Get user by ID
+-	POST	/users	Create user → publish UserCreated
+-	PUT	/users/:id	Update user → publish UserUpdated
+-	DELETE	/users/:id	Delete user → publish UserDeleted
+-	GET	/users/:id/files	Get user files
+-	POST	/users/:id/files	Add file
+-	DELETE	/users/:id/files	Delete all files
