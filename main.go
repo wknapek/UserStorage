@@ -1,6 +1,7 @@
 package main
 
 import (
+	"UserStorage/dbhandler"
 	"UserStorage/queueHandler"
 	"UserStorage/user"
 	"context"
@@ -41,7 +42,8 @@ func main() {
 	}()
 
 	r := gin.Default()
-	usrHandler := user.NewUserHandler(logger, client, rabbitHandl)
+	dbHan := dbhandler.NewMongoHandler(client)
+	usrHandler := user.NewUserHandler(logger, dbHan, rabbitHandl)
 
 	usersGroup := r.Group("/users")
 	{
@@ -59,11 +61,5 @@ func main() {
 	err = r.Run(":8080")
 	if err != nil {
 		return
-	}
-}
-
-func failOnError(err error, msg string) {
-	if err != nil {
-		logger.Panicf("%s: %s", msg, err)
 	}
 }

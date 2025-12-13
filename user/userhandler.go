@@ -1,22 +1,21 @@
 package user
 
 import (
+	"UserStorage/dbhandler"
 	"UserStorage/models"
 	"UserStorage/queueHandler"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"net/http"
 )
 
 type UserHandler struct {
 	logger *logrus.Logger
-	client *mongo.Client
-	rabbit *queueHandler.RabbitHandler
+	dbHan  dbhandler.DBHandler
+	rabbit queueHandler.QueueHandler
 }
 
-func NewUserHandler(logger *logrus.Logger, client *mongo.Client, han *queueHandler.RabbitHandler) *UserHandler {
+func NewUserHandler(logger *logrus.Logger, client dbhandler.DBHandler, han *queueHandler.RabbitHandler) *UserHandler {
 	return &UserHandler{logger, client, han}
 }
 
@@ -28,70 +27,75 @@ func (uh *UserHandler) CreateUser(c *gin.Context) {
 		uh.logger.Error(err)
 		return
 	}
-	one, err := uh.client.Database("users").Collection("users").InsertOne(c.Request.Context(), input)
+	if input.Age < 18 {
+		uh.logger.Error("User age is less than 18")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User age is less than 18"})
+		return
+	}
+	err := uh.dbHan.CreateUser(c.Request.Context(), input)
 	if err != nil {
 		uh.logger.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	uh.rabbit.Publish(models.Event{EventType: "UserCreated", User: input.Email})
-	c.JSON(http.StatusCreated, one)
+	uh.rabbit.Publish(models.Event{EventType: "UserCreated", UserID: input.Email, Age: input.Age, NoFiles: len(input.Files)})
+	c.JSON(http.StatusCreated, input)
 }
 
 func (uh *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("id")
 
-	coll := uh.client.Database("users").Collection("users")
-	var user models.User
-	if err := coll.FindOne(c.Request.Context(), bson.M{"_id": id}).Decode(&user); err != nil {
+	usr, err := uh.dbHan.GetUser(c.Request.Context(), id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		uh.logger.Error(err)
+		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	c.JSON(http.StatusOK, usr)
 }
 
 func (uh *UserHandler) UpdateUser(c *gin.Context) {
 	id := c.Param("id")
-	res, err := uh.client.Database("users").Collection("users").UpdateOne(c.Request.Context(), bson.M{"_id": id}, bson.M{"$set": c.Request.Body})
+	updUsr := models.User{}
+	err := c.ShouldBindJSON(&updUsr)
+	if err != nil {
+		uh.logger.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	err = uh.dbHan.UpdateUser(c.Request.Context(), updUsr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		uh.logger.Error(err)
+		return
 	}
-	uh.rabbit.Publish(models.Event{EventType: "UserUpdated", User: id})
-	c.JSON(http.StatusOK, res)
+	uh.rabbit.Publish(models.Event{EventType: "UserUpdated", UserID: id, Age: updUsr.Age, NoFiles: len(updUsr.Files)})
+	c.JSON(http.StatusOK, updUsr)
 }
 
 func (uh *UserHandler) DeleteUser(c *gin.Context) {
 	id := c.Param("id")
-	res, err := uh.client.Database("users").Collection("users").DeleteOne(c.Request.Context(), bson.M{"_id": id})
+	err := uh.dbHan.DeleteUser(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	uh.rabbit.Publish(models.Event{EventType: "UserDeleted", User: id})
-	c.JSON(http.StatusOK, res)
+	uh.rabbit.Publish(models.Event{EventType: "UserDeleted", UserID: id})
+	c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
 }
 
 func (uh *UserHandler) GetAllUsers(c *gin.Context) {
-	var users []models.User
-	cursor, err := uh.client.Database("users").Collection("users").Find(c.Request.Context(), bson.D{})
+	err, users := uh.dbHan.GetUsers(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	}
-	if err = cursor.All(c.Request.Context(), &users); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		return
 	}
 	c.JSON(http.StatusOK, users)
 }
 
 func (uh *UserHandler) AddFileToUser(c *gin.Context) {
 	id := c.Param("id")
-	coll := uh.client.Database("users").Collection("users")
-	var user models.User
-	if err := coll.FindOne(c.Request.Context(), bson.M{"_id": id}).Decode(&user); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		uh.logger.Error(err)
-	}
 	file := models.File{}
 	err := c.ShouldBindJSON(&file)
 	if err != nil {
@@ -99,46 +103,33 @@ func (uh *UserHandler) AddFileToUser(c *gin.Context) {
 		uh.logger.Error(err)
 		return
 	}
-	user.Files = append(user.Files, file)
-	_, err = coll.UpdateOne(c.Request.Context(), bson.M{"_id": id}, bson.M{"$set": user})
+	err = uh.dbHan.AddFileToUser(c.Request.Context(), id, file)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		uh.logger.Error(err)
+		return
 	}
-	c.JSON(http.StatusOK, user)
+
+	c.JSON(http.StatusOK, gin.H{"message": "file added"})
 }
 
 func (uh *UserHandler) DeleteFilesFromUser(c *gin.Context) {
 	id := c.Param("id")
-	coll := uh.client.Database("users").Collection("users")
-	var user models.User
-	if err := coll.FindOne(c.Request.Context(), bson.M{"_id": id}).Decode(&user); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		uh.logger.Error(err)
-	}
-	file := models.File{}
-	err := c.ShouldBindJSON(&file)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		uh.logger.Error(err)
-		return
-	}
-	user.Files = []models.File{}
-	_, err = coll.UpdateOne(c.Request.Context(), bson.M{"_id": id}, bson.M{"$set": user})
+	err := uh.dbHan.DeleteFilesFromUser(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		uh.logger.Error(err)
+		return
 	}
-	c.JSON(http.StatusOK, user)
+	c.JSON(http.StatusOK, gin.H{"message": "files deleted"})
 }
 
 func (uh *UserHandler) GetUserFiles(c *gin.Context) {
 	id := c.Param("id")
-	coll := uh.client.Database("users").Collection("users")
-	var user models.User
-	if err := coll.FindOne(c.Request.Context(), bson.M{"_id": id}).Decode(&user); err != nil {
+	files, err := uh.dbHan.GetUserFiles(c.Request.Context(), id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		uh.logger.Error(err)
 	}
-	c.JSON(http.StatusOK, user.Files)
+	c.JSON(http.StatusOK, files)
 }

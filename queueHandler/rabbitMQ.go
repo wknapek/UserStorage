@@ -6,6 +6,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type QueueHandler interface {
+	Publish(ev any)
+}
+
 type RabbitHandler struct {
 	chanel   *amqp091.Channel
 	exchange string
