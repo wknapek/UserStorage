@@ -4,45 +4,36 @@ import (
 	"UserStorage/dbhandler"
 	"UserStorage/queueHandler"
 	"UserStorage/user"
-	"context"
+	"flag"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"os"
-	"time"
 )
 
 var logger = logrus.New()
 
 func main() {
 
+	mongoURI := flag.String("mongo-uri", "", "mongo uri")
+	rabbitURI := flag.String("rabbit-uri", "", "rabbit uri")
+	flag.Parse()
+	if *mongoURI == "" {
+		logger.Error("mongo-uri is not set")
+		return
+	}
+
+	if *rabbitURI == "" {
+		logger.Error("rabbit-uri is not set")
+		return
+	}
+
 	logger.SetOutput(os.Stdout)
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	rabbitHandl := queueHandler.NewRabbitHandler(os.Getenv(""), logger)
-
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		logger.Error("MONGO_URI env variable is not set")
-		return
-	}
-	client, err := mongo.Connect(options.Client().ApplyURI(mongoURI))
-	if err != nil {
-		logger.Error(err)
-		panic(err)
-	}
-	defer func() {
-		if err = client.Disconnect(ctx); err != nil {
-			panic(err)
-		}
-	}()
+	rabbitHandl := queueHandler.NewRabbitHandler(*rabbitURI, logger)
 
 	r := gin.Default()
-	dbHan := dbhandler.NewMongoHandler(client)
+	dbHan := dbhandler.NewMongoHandler(*mongoURI)
 	usrHandler := user.NewUserHandler(logger, dbHan, rabbitHandl)
 
 	usersGroup := r.Group("/users")
@@ -58,7 +49,7 @@ func main() {
 		usersGroup.DELETE("/:id/files", usrHandler.DeleteFilesFromUser)
 	}
 
-	err = r.Run(":8080")
+	err := r.Run(":8080")
 	if err != nil {
 		return
 	}
