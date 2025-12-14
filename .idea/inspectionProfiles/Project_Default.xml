@@ -4,6 +4,7 @@
     <inspection_tool class="GoDfaErrorMayBeNotNil" enabled="true" level="WARNING" enabled_by_default="true">
       <methods>
         <method importPath="go.mongodb.org/mongo-driver/v2/mongo" receiver="*Collection" name="Find" />
+        <method importPath="UserStorage/dbhandler" receiver="DBHandler" name="GetUser" />
       </methods>
     </inspection_tool>
   </profile>

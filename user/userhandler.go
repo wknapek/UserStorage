@@ -4,8 +4,10 @@ import (
 	"UserStorage/dbhandler"
 	"UserStorage/models"
 	"UserStorage/queueHandler"
+	"UserStorage/secutiry"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 	"net/http"
 )
 
@@ -13,10 +15,11 @@ type UserHandler struct {
 	logger *logrus.Logger
 	dbHan  dbhandler.DBHandler
 	rabbit queueHandler.QueueHandler
+	auth   *secutiry.AuthObj
 }
 
-func NewUserHandler(logger *logrus.Logger, client dbhandler.DBHandler, han *queueHandler.RabbitHandler) *UserHandler {
-	return &UserHandler{logger, client, han}
+func NewUserHandler(logger *logrus.Logger, client dbhandler.DBHandler, han *queueHandler.RabbitHandler, auth *secutiry.AuthObj) *UserHandler {
+	return &UserHandler{logger, client, han, auth}
 }
 
 func (uh *UserHandler) CreateUser(c *gin.Context) {
@@ -132,4 +135,25 @@ func (uh *UserHandler) GetUserFiles(c *gin.Context) {
 		uh.logger.Error(err)
 	}
 	c.JSON(http.StatusOK, files)
+}
+
+func (uh *UserHandler) Login(c *gin.Context) {
+	var req models.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	}
+	user, err := uh.dbHan.GetUser(c.Request.Context(), req.Username)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error user not found": err.Error()})
+		uh.logger.Error(err)
+		return
+	}
+	bytesPass := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
+	if bytesPass != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "wrong password"})
+		uh.logger.Error(err)
+		return
+	}
+	token, err := uh.auth.CreateToken(req.Username)
+	c.JSON(http.StatusOK, gin.H{"token": token})
 }

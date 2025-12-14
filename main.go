@@ -3,6 +3,7 @@ package main
 import (
 	"UserStorage/dbhandler"
 	"UserStorage/queueHandler"
+	"UserStorage/secutiry"
 	"UserStorage/user"
 	"flag"
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ func main() {
 
 	mongoURI := flag.String("mongo-uri", "", "mongo uri")
 	rabbitURI := flag.String("rabbit-uri", "", "rabbit uri")
+	secret := flag.String("secret", "", "secret for jwt")
 	flag.Parse()
 	if *mongoURI == "" {
 		logger.Error("mongo-uri is not set")
@@ -31,12 +33,14 @@ func main() {
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
 	rabbitHandl := queueHandler.NewRabbitHandler(*rabbitURI, logger)
+	auth := secutiry.NewAuthObj([]byte(*secret))
 
 	r := gin.Default()
 	dbHan := dbhandler.NewMongoHandler(*mongoURI)
-	usrHandler := user.NewUserHandler(logger, dbHan, rabbitHandl)
+	usrHandler := user.NewUserHandler(logger, dbHan, rabbitHandl, auth)
 
 	usersGroup := r.Group("/users")
+	usersGroup.Use(auth.Auth())
 	{
 		usersGroup.GET("", usrHandler.GetAllUsers)
 		usersGroup.POST("", usrHandler.CreateUser)
