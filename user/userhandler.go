@@ -18,7 +18,7 @@ type UserHandler struct {
 	auth   *secutiry.AuthObj
 }
 
-func NewUserHandler(logger *logrus.Logger, client dbhandler.DBHandler, han *queueHandler.RabbitHandler, auth *secutiry.AuthObj) *UserHandler {
+func NewUserHandler(logger *logrus.Logger, client dbhandler.DBHandler, han queueHandler.QueueHandler, auth *secutiry.AuthObj) *UserHandler {
 	return &UserHandler{logger, client, han, auth}
 }
 
@@ -35,7 +35,13 @@ func (uh *UserHandler) CreateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User age is less than 18"})
 		return
 	}
-	err := uh.dbHan.CreateUser(c.Request.Context(), input)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		uh.logger.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+	input.Password = string(hashedPassword)
+	err = uh.dbHan.CreateUser(c.Request.Context(), input)
 	if err != nil {
 		uh.logger.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -89,7 +95,7 @@ func (uh *UserHandler) DeleteUser(c *gin.Context) {
 }
 
 func (uh *UserHandler) GetAllUsers(c *gin.Context) {
-	err, users := uh.dbHan.GetUsers(c.Request.Context())
+	users, err := uh.dbHan.GetUsers(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return

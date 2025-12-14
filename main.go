@@ -11,10 +11,8 @@ import (
 	"os"
 )
 
-var logger = logrus.New()
-
 func main() {
-
+	var logger = logrus.New()
 	mongoURI := flag.String("mongo-uri", "", "mongo uri")
 	rabbitURI := flag.String("rabbit-uri", "", "rabbit uri")
 	secret := flag.String("secret", "", "secret for jwt")

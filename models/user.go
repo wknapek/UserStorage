@@ -9,5 +9,5 @@ type User struct {
 }
 
 type File struct {
-	Name string `bson:"name"`
+	Name string `json:"name" bson:"name"`
 }
